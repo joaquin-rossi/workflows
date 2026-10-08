@@ -1,0 +1,87 @@
+# workflow reutilizable: build + push de la imagen y actualización del tag en gitops
+#
+# uso desde otro repo:
+#   jobs:
+#     deploy:
+#       uses: joaquin-rossi/workflows/.github/workflows/deploy-image.yaml@master
+#       with:
+#         app: mi-app
+#       secrets: inherit
+#
+# secrets que tiene que tener el repo que lo llama:
+#   REGISTRY_USERNAME, REGISTRY_PASSWORD: credenciales de escritura de lax.vultrcr.com
+#   GITOPS_DEPLOY_KEY: clave privada de una deploy key con escritura en joaco-k8s
+name: deploy-image
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: nombre de la imagen y de la carpeta en gitops/apps
+        type: string
+        required: true
+      gitops_path:
+        description: carpeta con el kustomization.yaml (default gitops/apps/<app>)
+        type: string
+        default: ""
+      context:
+        description: contexto del docker build
+        type: string
+        default: .
+    secrets:
+      REGISTRY_USERNAME:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      GITOPS_DEPLOY_KEY:
+        required: true
+
+env:
+  REGISTRY: lax.vultrcr.com/joacr
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tag
+        id: tag
+        run: |
+          echo "tag=$(date -u +%Y%m%d-%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "gitops_path=${{ inputs.gitops_path || format('gitops/apps/{0}', inputs.app) }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: lax.vultrcr.com
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context }}
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ inputs.app }}:${{ steps.tag.outputs.tag }}
+
+      - uses: actions/checkout@v7
+        with:
+          repository: joaquin-rossi/joaco-k8s
+          ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
+          path: gitops-repo
+
+      - name: Actualizar imagen en gitops
+        working-directory: gitops-repo
+        env:
+          APP: ${{ inputs.app }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          GITOPS_PATH: ${{ steps.tag.outputs.gitops_path }}
+        run: |
+          (cd "$GITOPS_PATH" && kustomize edit set image "$APP=$REGISTRY/$APP:$TAG")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$GITOPS_PATH"
+          git commit -m "deploy $APP:$TAG"
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1
