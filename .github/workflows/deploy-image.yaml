@@ -67,7 +67,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          repository: joaquin-rossi/joaco-k8s
+          repository: joaquin-rossi/k8s
           ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
           path: gitops-repo
 
