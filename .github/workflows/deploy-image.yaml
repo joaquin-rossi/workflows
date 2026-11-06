@@ -6,6 +6,7 @@
 #       uses: joaquin-rossi/workflows/.github/workflows/deploy-image.yaml@master
 #       with:
 #         app: mi-app
+#         lfs: true   # opcional, si el repo usa git lfs
 #       secrets: inherit
 #
 # secrets que tiene que tener el repo que lo llama:
@@ -28,6 +29,10 @@ on:
         description: contexto del docker build
         type: string
         default: .
+      lfs:
+        description: bajar los archivos de git lfs antes del build
+        type: boolean
+        default: false
     secrets:
       REGISTRY_USERNAME:
         required: true
@@ -44,6 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          lfs: ${{ inputs.lfs }}
 
       - name: Tag
         id: tag
